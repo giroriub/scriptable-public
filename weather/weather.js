@@ -66,24 +66,41 @@ const FORECAST_STACK_MEDIUM_SIZE = new Size(0, 65);
 const NETATMO_IMAGE_SIZE = new Size(35, 35);
 const TODAY_IMAGE_SIZE = new Size(20, 20);
 
+// meteoalarm colors
+const METEOALARM_SEVERITY_MINOR_COLOR = new Color('#ffcb03');
+const METEOALARM_SEVERITY_MODERATE_COLOR = new Color('#c66837');
+const METEOALARM_SEVERITY_SEVERE_COLOR = new Color('#ff4a03');
+const METEOALARM_SEVERITY_EXTREME_COLOR = new Color('#ff0329');
+
 // modes https://docs.scriptable.app/device/#isusingdarkappearance is not supported in widgets, so you have to choose here
 // normal mode
-// const WIDGET_BACKGROUND = new Color('#d6d6d6'); // widget background
-// const STACK_BACKGROUND = new Color('#ffffff'); // stack background
-// const TEXT_COLOR = new Color('#000000'); // text
+// const WIDGET_BACKGROUND_COLOR = new Color('#d6d6d6');
+// const STACK_BACKGROUND_COLOR = new Color('#ffffff');
+// const TEXT_COLOR = new Color('#000000');
 // const WARNING_COLOR = new Color('#de1515'); // warnings (ex. cache data used)
 // const TINT_COLOR = new Color('#000000'); // make SFImage visible
 // const SUNRISE_ICON_NAME = 'sunrise';
 // const SUNSET_ICON_NAME = 'sunset';
 
 // dark mode
-const WIDGET_BACKGROUND = new Color('#000000'); // widget background
-const STACK_BACKGROUND = new Color('#222222'); // stack background
-const TEXT_COLOR = new Color('#ffffff'); // text
+const WIDGET_BACKGROUND_COLOR = new Color('#000000');
+const STACK_BACKGROUND_COLOR = new Color('#222222');
+const TEXT_COLOR = new Color('#ffffff');
 const WARNING_COLOR = new Color('#ff0000'); // warnings (ex. cache data used)
 const TINT_COLOR = new Color('#ffffff'); // make SFImage visible
 const SUNRISE_ICON_NAME = 'sunrise.fill';
 const SUNSET_ICON_NAME = 'sunset.fill';
+
+
+// DO NOT CHANGE
+////////////////
+// levels taken from https://www.oasis-open.org/committees/download.php/15135/emergency-CAPv1.1-Corrected_DOM.pdf
+const METEOALARM_SEVERITIES = {
+    'Minor': {'severity': 1, 'color': METEOALARM_SEVERITY_MINOR_COLOR},
+    'Moderate': {'severity': 2, 'color': METEOALARM_SEVERITY_MODERATE_COLOR},
+    'Severe': {'severity': 3, 'color': METEOALARM_SEVERITY_SEVERE_COLOR},
+    'Extreme': {'severity': 4, 'color': METEOALARM_SEVERITY_EXTREME_COLOR},
+};
 
 if (config.runsInWidget || DEV_MODE) {
 
@@ -109,8 +126,22 @@ if (config.runsInWidget || DEV_MODE) {
 
     let locationInformation = await getLocationInformation(widgetParameter.location);
 
+    let widgetBackgroundColor = WIDGET_BACKGROUND_COLOR;
+    var weatherUrl = WEATHER_URL;
+
+    // set widget background color according to meteoalarm level
+    if (widgetParameter.meteoalarm !== undefined) {
+        let meteoalarmInfo = await getMeteoAlarmInfo(widgetParameter.meteoalarm);
+        if (meteoalarmInfo.severity !== undefined) {
+            widgetBackgroundColor = METEOALARM_SEVERITIES[meteoalarmInfo.severity].color;
+        }
+        if (meteoalarmInfo.url !== undefined) {
+            weatherUrl = meteoalarmInfo.url;
+        }
+    }
+
     let widget = new ListWidget();
-    widget.backgroundColor = WIDGET_BACKGROUND;
+    widget.backgroundColor = widgetBackgroundColor;
     widget.setPadding(10, 10, 10, 10);
 
     let weatherForecast; // migh not be fetched, depending on stacks displayed
@@ -135,7 +166,7 @@ if (config.runsInWidget || DEV_MODE) {
 
         if (widgetFamily === 'large' || (widgetFamily === 'small' && smallWidgetStack === 'today')) {
             if (widgetFamily === 'small') { // stack url does not apply for small widgets, widget url has to be set (https://docs.scriptable.app/widgetstack/#url)
-                widget.url = WEATHER_URL;
+                widget.url = weatherUrl;
             }
             weatherForecast = await getWeatherData('openweathermap.json', fetchOpenweathermapData, locationInformation); // get the forecast from https://openweathermap.org
             await addTodayStack(topRow, weatherForecast, locationInformation);
@@ -148,18 +179,7 @@ if (config.runsInWidget || DEV_MODE) {
 
     if (widgetFamily === 'medium') {
         weatherForecast = await getWeatherData('openweathermap.json', fetchOpenweathermapData, locationInformation); // get the forecast from https://openweathermap.org
-        let titleStack = widget.addStack();
-        titleStack.backgroundColor = STACK_BACKGROUND;
-        titleStack.cornerRadius = 12;
-        titleStack.layoutHorizontally();
-        titleStack.addSpacer();
-        let time = (weatherForecast !== undefined) ? formatTimestamp(weatherForecast.current.dt, TIME_FORMAT) : 'unbekannt';
-        let title = titleStack.addText(locationInformation.city + ', ' + time);
-        title.font = Font.semiboldSystemFont(12);
-        title.textColor = (weatherForecast !== undefined && weatherForecast.isCached) || locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
-        title.textOpacity = 0.5;
-        titleStack.addSpacer();
-        widget.addSpacer();
+        await addForecastStackTitle(widget, weatherForecast, locationInformation);
     }
 
     if (widgetFamily === 'large' || widgetFamily === 'medium') {
@@ -198,7 +218,7 @@ async function addNetatmoStack(currentStack, locationInformation) {
     netatmoStack.layoutVertically();
     netatmoStack.topAlignContent();
     netatmoStack.setPadding(7, 3, 7, 3)
-    netatmoStack.backgroundColor = STACK_BACKGROUND;
+    netatmoStack.backgroundColor = STACK_BACKGROUND_COLOR;
     netatmoStack.cornerRadius = 12;
 
     const netatmoData = await getWeatherData('netatmo.json', fetchNetatmoData, locationInformation); // get the data from https://dev.netatmo.com
@@ -228,10 +248,10 @@ async function addNetatmoStack(currentStack, locationInformation) {
         outdoorStack.addSpacer(10);
 
         // not all modules might respond => try to read data
-        let outdoorTemperature = (modules[2].dashboard_data !== undefined) ? Math.round(modules[2].dashboard_data.Temperature) : '?';
+        let outdoorTemperature = (modules[2].dashboard_data !== undefined) ? modules[2].dashboard_data.Temperature.toFixed(1) : '?';
         let outdoorHumidity = (modules[2].dashboard_data !== undefined) ? modules[2].dashboard_data.Humidity : '?';
         let windStrength = (modules[0].dashboard_data !== undefined) ? modules[0].dashboard_data.WindStrength : '?';
-        let rain = (modules[1].dashboard_data !== undefined) ? Math.round(modules[1].dashboard_data.Rain) : '?';
+        let rain = (modules[1].dashboard_data !== undefined) ? modules[1].dashboard_data.sum_rain_1.toFixed(1) : '?';
 
         // create the stack
         let outdoorDataStack = outdoorStack.addStack();
@@ -260,7 +280,7 @@ async function addNetatmoStack(currentStack, locationInformation) {
 
         let indoorDataStack = indoorStack.addStack();
         indoorDataStack.layoutVertically();
-        let indoorTemperatureTxt = indoorDataStack.addText(Math.round(dashboardData.Temperature) + '°');
+        let indoorTemperatureTxt = indoorDataStack.addText(dashboardData.Temperature.toFixed(1) + '°');
         indoorTemperatureTxt.font = Font.systemFont(12);
         indoorTemperatureTxt.textColor = TEXT_COLOR;
         let indoorHumidityTxt = indoorDataStack.addText(dashboardData.Humidity + '%');
@@ -279,11 +299,11 @@ async function addNetatmoStack(currentStack, locationInformation) {
 async function addTodayStack(currentStack, weatherForecast, locationInformation) {
     // top row => today weather stack
     let todayStack = currentStack.addStack();
-    todayStack.url = WEATHER_URL;
+    todayStack.url = weatherUrl;
     todayStack.layoutVertically();
     todayStack.topAlignContent();
     todayStack.setPadding(7, 3, 7, 3);
-    todayStack.backgroundColor = STACK_BACKGROUND;
+    todayStack.backgroundColor = STACK_BACKGROUND_COLOR;
     todayStack.cornerRadius = 12;
 
     if (weatherForecast !== undefined) {
@@ -338,7 +358,7 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         let firstDataStack = todayStack.addStack();
         firstDataStack.layoutHorizontally();
         firstDataStack.addSpacer();
-        let firstDataText = firstDataStack.addText(Math.round(currentForecast.temp) + '°(' + Math.round(currentForecast.feels_like) + '°) / ' + currentForecast.humidity + '%');
+        let firstDataText = firstDataStack.addText(currentForecast.temp.toFixed(1) + '° (' + currentForecast.feels_like.toFixed(1) + '°)');
         firstDataText.centerAlignText();
         firstDataText.font = Font.systemFont(12);
         firstDataText.textColor = TEXT_COLOR;
@@ -347,7 +367,7 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         let secondDataStack = todayStack.addStack();
         secondDataStack.layoutHorizontally();
         secondDataStack.addSpacer();
-        let secondDataText = secondDataStack.addText(Math.round(currentForecast.wind_speed * 3.6) + ' kmh');
+        let secondDataText = secondDataStack.addText(currentForecast.humidity + '% / ' + (currentForecast.wind_speed * 3.6).toFixed(1) + ' kmh');
         secondDataText.centerAlignText();
         secondDataText.font = Font.systemFont(12);
         secondDataText.textColor = TEXT_COLOR;
@@ -360,13 +380,27 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
     }
 }
 
+async function addForecastStackTitle(currentStack, forecast, locationInformation) {
+    let titleStack = currentStack.addStack();
+    titleStack.cornerRadius = 12;
+    titleStack.layoutHorizontally();
+    titleStack.addSpacer();
+    let time = (forecast !== undefined) ? formatTimestamp(forecast.current.dt, TIME_FORMAT) : 'unbekannt';
+    let title = titleStack.addText(locationInformation.city + ', ' + time);
+    title.font = Font.semiboldSystemFont(12);
+    title.textColor = (forecast !== undefined && forecast.isCached) || locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
+    title.textOpacity = 0.5;
+    titleStack.addSpacer();
+    currentStack.addSpacer();
+}
+
 // add a forecast row to the currentStack
 async function addForecastStack(currentStack, forecast, convertForecastCallable, widgetFamily) {
     let forecastStack = currentStack.addStack();
-    forecastStack.url = WEATHER_URL;
+    forecastStack.url = weatherUrl;
     forecastStack.layoutHorizontally();
     forecastStack.centerAlignContent();
-    forecastStack.backgroundColor = STACK_BACKGROUND;
+    forecastStack.backgroundColor = STACK_BACKGROUND_COLOR;
     forecastStack.cornerRadius = 12;
     forecastStack.setPadding(7, 3, 7, 3);
     if (widgetFamily === 'large') {
@@ -589,6 +623,21 @@ async function getLocationInformation(givenLocation) {
     return locationInformation;
 }
 
+async function getMeteoAlarmInfo(meteoalarmParameters) {
+    let meteoAlarmInfo = {};
+    const METEOALARM_URL = 'http://www.meteoalarm.eu/ATOM/' + meteoalarmParameters.countryCode + '.xml';
+
+    try {
+        meteoAlarmInfo = parseMeteoAlarmData(await new Request(METEOALARM_URL).loadString(), meteoalarmParameters.geocode);
+    } catch (exception) {
+        if (DEV_MODE) {
+            console.error('meteoalarm exception: ' + exception);
+        }
+    }
+
+    return meteoAlarmInfo;
+}
+
 // filemanager methods
 //////////////////////
 
@@ -642,4 +691,84 @@ function formatTimestamp(timestamp, format) {
     let dateFormatter = new DateFormatter();
     dateFormatter.dateFormat = format;
     return dateFormatter.string(new Date(timestamp * 1000));
+}
+
+// xml methods
+//////////////
+
+/*
+Example entry:
+	<entry>
+		<id>2.49.0.0.724.0.ES.201010063312.690803PRP1102211592</id>
+		<updated>2020-10-10T07:33:12+01:00</updated>
+		<published>2020-10-10T07:33:12+01:00</published>
+		<author>
+			<name>AGENCIA ESTATAL DE METEOROLOGIA</name>
+			<uri>http://www.aemet.es/es/eltiempo/prediccion/avisos</uri>
+		</author>
+		<title> Rain Warning issued from for Spain - Prelitoral de Barcelona </title>
+		<link hreflang="english" title="Prelitoral de Barcelona" href="http://meteoalarm.eu/auto/0/0/ES180.html"/>
+		<link hreflang="english" title="Spain" rel="related" href="http://meteoalarm.eu/auto/0/0/ES.html"/>
+		<link type="application/cap+xml" href="http://meteoalarm.eu/CAP/POLY/ES_10102020_176854106.cap.xml"/>
+		<cap:status>Actual</cap:status>
+		<cap:msgType>Update</cap:msgType>
+		<cap:scope>Public</cap:scope>
+		<cap:urgency>Immediate</cap:urgency>
+		<cap:severity>Severe</cap:severity>
+		<cap:certainty>Likely</cap:certainty>
+		<cap:onset>2020-10-10T17:00:00+01:00</cap:onset>
+		<cap:effective>2020-10-10T17:00:00+01:00</cap:effective>
+		<cap:expires>2020-10-10T22:59:59+01:00</cap:expires>
+		<cap:sent>2020-10-10T07:33:12+01:00</cap:sent>
+		<cap:event>Severe Rain Warning</cap:event>
+		<cap:areaDesc>Prelitoral de Barcelona</cap:areaDesc>
+		<cap:geocode>
+			<valueName>NUTS3</valueName>
+			<value>ES511</value>
+		</cap:geocode>
+	</entry>
+ */
+
+function parseMeteoAlarmData(meteoAlarmData, geocode) {
+    let meteoAlarmInfo = {};
+
+    let highestSeverity = 'None';
+    let currentSeverity = 'None';
+    let currentUrl = '';
+
+    const xmlParser = new XMLParser(meteoAlarmData);
+    let currentValue = '';
+
+    xmlParser.foundCharacters = (value) => {
+        currentValue += value;
+    }
+
+    xmlParser.didStartElement = (name, attributes) => {
+        currentValue = '';
+        if ((name === 'link') && (attributes.rel === undefined) && (attributes.type === undefined)) {
+            currentUrl = attributes.href;
+        }
+    }
+
+    xmlParser.didEndElement = (name) => {
+        if (name === 'cap:severity') {
+            currentSeverity = currentValue;
+        } else if (name === 'value') { // geocode.value (only value element so far. improvement: check for previous element == geocode)
+            if (currentValue === geocode) {
+                if ((highestSeverity === 'None') || (METEOALARM_SEVERITIES[currentSeverity].severity > METEOALARM_SEVERITIES[highestSeverity].severity)) {
+                    highestSeverity = currentSeverity;
+                    meteoAlarmInfo.severity = highestSeverity;
+                    meteoAlarmInfo.url = currentUrl;
+                }
+            }
+        }
+    }
+
+    xmlParser.parse();
+
+    if (DEV_MODE) {
+        console.log(meteoAlarmInfo);
+    }
+
+    return meteoAlarmInfo;
 }
