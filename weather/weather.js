@@ -38,7 +38,7 @@ const NETATMO_SCOPE = '';
 const DEV_MODE = false; // true: run script in dev mode
 const DEV_PREVIEW = 'large'; // widget size for dev mode
 const DEV_MODE_WIDGET_PARAMETER = '{}'; // set desired widget parameters for dev mode
-// const DEV_MODE_WIDGET_PARAMETER = '{"location": {"latitude": 37.7749, "longitude": -122.4194}, "smallWidgetStack": "netatmo"}'; // ex. San Francisco, ex. show netatmo instead of today in small widget
+// const DEV_MODE_WIDGET_PARAMETER = '{"location": {"latitude": 37.7749, "longitude": -122.4194}, "smallWidgetStack": "netatmo", "meteoalarm": {"countryCode": "ES", "geocode": "ES511"}}'; // ex. San Francisco, ex. show netatmo instead of today in small widget, use ES/ES511 for meteoalarms
 
 // forecast
 const FORECAST_HOURS = 5; // recommended 4-6, depending on device (max. 48)
@@ -46,7 +46,7 @@ const FORECAST_DAYS = 5; // recommended 4-6, depending on device (max. 7)
 const FORECAST_UNITS = 'metric' // metric for celsius and imperial for Fahrenheit
 const FORECAST_LANGUAGE_CODE = 'de' // language for text output of openweathermap.org
 
-// date formats
+// date formats (https://docs.scriptable.app/dateformatter/#dateformat)
 const DAY_FORMAT = 'E';
 const HOUR_FORMAT = 'HH';
 const TIME_FORMAT = 'HH.mm';
@@ -58,6 +58,10 @@ const WEATHER_URL = 'wettercomuniversal://'; // opens weather app when today-sta
 // icons
 const OUTDOOR_ICON_NAME = 'figure.walk.circle';
 const INDOOR_ICON_NAME = 'house.circle';
+const SUNRISE_ICON_NAME = 'sunrise';
+const SUNSET_ICON_NAME = 'sunset';
+const LOCATION_ICON_NAME = 'location';
+const FIXED_LOCATION_ICON_NAME = 'target';
 
 // sizes (tweak depending on device)
 const TOP_ROW_SIZE = new Size(0, 150);
@@ -65,6 +69,7 @@ const FORECAST_STACK_LARGE_SIZE = new Size(0, 85);
 const FORECAST_STACK_MEDIUM_SIZE = new Size(0, 65);
 const NETATMO_IMAGE_SIZE = new Size(35, 35);
 const TODAY_IMAGE_SIZE = new Size(20, 20);
+const LOCATION_ICON_SIZE = new Size(10, 10);
 
 // meteoalarm colors
 const METEOALARM_SEVERITY_MINOR_COLOR = new Color('#ffcb03');
@@ -79,8 +84,6 @@ const METEOALARM_SEVERITY_EXTREME_COLOR = new Color('#ff0329');
 // const TEXT_COLOR = new Color('#000000');
 // const WARNING_COLOR = new Color('#de1515'); // warnings (ex. cache data used)
 // const TINT_COLOR = new Color('#000000'); // make SFImage visible
-// const SUNRISE_ICON_NAME = 'sunrise';
-// const SUNSET_ICON_NAME = 'sunset';
 
 // dark mode
 const WIDGET_BACKGROUND_COLOR = new Color('#000000');
@@ -88,8 +91,6 @@ const STACK_BACKGROUND_COLOR = new Color('#222222');
 const TEXT_COLOR = new Color('#ffffff');
 const WARNING_COLOR = new Color('#ff0000'); // warnings (ex. cache data used)
 const TINT_COLOR = new Color('#ffffff'); // make SFImage visible
-const SUNRISE_ICON_NAME = 'sunrise.fill';
-const SUNSET_ICON_NAME = 'sunset.fill';
 
 
 // DO NOT CHANGE
@@ -229,22 +230,27 @@ async function addNetatmoStack(currentStack, locationInformation) {
         let titleStack = netatmoStack.addStack();
         titleStack.layoutHorizontally();
         titleStack.addSpacer();
-        let title = titleStack.addText(netatmoData.station_name + ', ' + formatTimestamp(dashboardData.time_utc, TIME_FORMAT));
+        let title = titleStack.addText(netatmoData.station_name);
         title.font = Font.semiboldSystemFont(12);
-        title.textColor = netatmoData.isCached ? WARNING_COLOR : TEXT_COLOR;
+        title.textColor = TEXT_COLOR;
         title.textOpacity = 0.5;
         titleStack.addSpacer();
+
+        let updateTimeStack = netatmoStack.addStack();
+        updateTimeStack.layoutHorizontally();
+        updateTimeStack.addSpacer();
+        let time = updateTimeStack.addText(formatTimestamp(dashboardData.time_utc, TIME_FORMAT));
+        time.font = Font.semiboldSystemFont(10);
+        time.textColor = netatmoData.isCached ? WARNING_COLOR : TEXT_COLOR;
+        time.textOpacity = 0.5;
+        updateTimeStack.addSpacer();
 
         netatmoStack.addSpacer();
 
         let outdoorStack = netatmoStack.addStack();
         outdoorStack.layoutHorizontally();
         outdoorStack.centerAlignContent();
-        let cloudSymbol = SFSymbol.named(OUTDOOR_ICON_NAME);
-        cloudSymbol.applyUltraLightWeight();
-        let outdoorIcon = outdoorStack.addImage(cloudSymbol.image);
-        outdoorIcon.tintColor = TINT_COLOR;
-        outdoorIcon.imageSize = NETATMO_IMAGE_SIZE;
+        addSfSymbol(outdoorStack, OUTDOOR_ICON_NAME, NETATMO_IMAGE_SIZE)
         outdoorStack.addSpacer(10);
 
         // not all modules might respond => try to read data
@@ -271,11 +277,7 @@ async function addNetatmoStack(currentStack, locationInformation) {
         let indoorStack = netatmoStack.addStack();
         indoorStack.layoutHorizontally();
         indoorStack.centerAlignContent();
-        let houseSymbol = SFSymbol.named(INDOOR_ICON_NAME);
-        houseSymbol.applyUltraLightWeight();
-        let indoorIcon = indoorStack.addImage(houseSymbol.image);
-        indoorIcon.tintColor = TINT_COLOR;
-        indoorIcon.imageSize = NETATMO_IMAGE_SIZE;
+        addSfSymbol(indoorStack, INDOOR_ICON_NAME, NETATMO_IMAGE_SIZE)
         indoorStack.addSpacer(10);
 
         let indoorDataStack = indoorStack.addStack();
@@ -311,12 +313,24 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
 
         let titleStack = todayStack.addStack();
         titleStack.layoutHorizontally();
+        titleStack.centerAlignContent();
         titleStack.addSpacer();
-        let title = titleStack.addText(locationInformation.city + ', ' + formatTimestamp(currentForecast.dt, TIME_FORMAT));
+        addSfSymbol(titleStack, locationInformation.isFixed ? FIXED_LOCATION_ICON_NAME : LOCATION_ICON_NAME, LOCATION_ICON_SIZE);
+        titleStack.addSpacer(3);
+        let title = titleStack.addText(locationInformation.city);
         title.font = Font.semiboldSystemFont(12);
-        title.textColor = weatherForecast.isCached || locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
+        title.textColor = locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
         title.textOpacity = 0.5;
         titleStack.addSpacer();
+
+        let updateTimeStack = todayStack.addStack();
+        updateTimeStack.layoutHorizontally();
+        updateTimeStack.addSpacer();
+        let time = updateTimeStack.addText(formatTimestamp(currentForecast.dt, TIME_FORMAT));
+        time.font = Font.semiboldSystemFont(10);
+        time.textColor = weatherForecast.isCached ? WARNING_COLOR : TEXT_COLOR;
+        time.textOpacity = 0.5;
+        updateTimeStack.addSpacer();
 
         todayStack.addSpacer();
 
@@ -325,10 +339,7 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         subtitleStack.centerAlignContent();
         subtitleStack.addSpacer();
 
-        let sunriseSymbol = SFSymbol.named(SUNRISE_ICON_NAME);
-        sunriseSymbol.applyUltraLightWeight();
-        let sunriseIcon = subtitleStack.addImage(sunriseSymbol.image);
-        sunriseIcon.imageSize = TODAY_IMAGE_SIZE;
+        addSfSymbol(subtitleStack, SUNRISE_ICON_NAME, TODAY_IMAGE_SIZE);
         subtitleStack.addSpacer(5);
         let sunriseText = subtitleStack.addText(formatTimestamp(currentForecast.sunrise, TIME_FORMAT));
         sunriseText.font = Font.systemFont(10);
@@ -336,10 +347,7 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
 
         subtitleStack.addSpacer(15);
 
-        let sunsetSymbol = SFSymbol.named(SUNSET_ICON_NAME);
-        sunsetSymbol.applyUltraLightWeight();
-        let sunsetIcon = subtitleStack.addImage(sunsetSymbol.image);
-        sunsetIcon.imageSize = TODAY_IMAGE_SIZE;
+        addSfSymbol(subtitleStack, SUNSET_ICON_NAME, TODAY_IMAGE_SIZE);
         subtitleStack.addSpacer(5);
         let sunsetText = subtitleStack.addText(formatTimestamp(currentForecast.sunset, TIME_FORMAT));
         sunsetText.font = Font.systemFont(10);
@@ -382,14 +390,20 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
 
 async function addForecastStackTitle(currentStack, forecast, locationInformation) {
     let titleStack = currentStack.addStack();
-    titleStack.cornerRadius = 12;
     titleStack.layoutHorizontally();
+    titleStack.centerAlignContent();
     titleStack.addSpacer();
-    let time = (forecast !== undefined) ? formatTimestamp(forecast.current.dt, TIME_FORMAT) : 'unbekannt';
-    let title = titleStack.addText(locationInformation.city + ', ' + time);
+    addSfSymbol(titleStack, locationInformation.isFixed ? FIXED_LOCATION_ICON_NAME : LOCATION_ICON_NAME, LOCATION_ICON_SIZE);
+    titleStack.addSpacer(3);
+    let title = titleStack.addText(locationInformation.city);
     title.font = Font.semiboldSystemFont(12);
-    title.textColor = (forecast !== undefined && forecast.isCached) || locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
+    title.textColor = locationInformation.isCached ? WARNING_COLOR : TEXT_COLOR;
     title.textOpacity = 0.5;
+    titleStack.addSpacer(3);
+    let time = titleStack.addText('(' + ((forecast !== undefined) ? formatTimestamp(forecast.current.dt, TIME_FORMAT) : 'unbekannt') + ')');
+    time.font = Font.semiboldSystemFont(12);
+    time.textColor = (forecast !== undefined && forecast.isCached) ? WARNING_COLOR : TEXT_COLOR;
+    time.textOpacity = 0.5;
     titleStack.addSpacer();
     currentStack.addSpacer();
 }
@@ -470,6 +484,14 @@ async function convertDailyForecast(dailyForecast) {
     forecast.icon = await getWeatherIcon(dailyForecast.weather[0].icon);
     forecast.data = Math.round(dailyForecast.temp.min) + '° / ' + Math.round(dailyForecast.temp.max) + '°';
     return forecast;
+}
+
+function addSfSymbol(currentStack, symbolName, imageSize) {
+    let symbol = SFSymbol.named(symbolName);
+    symbol.applyUltraLightWeight();
+    let image = currentStack.addImage(symbol.image);
+    image.imageSize = imageSize;
+    image.tintColor = TINT_COLOR;
 }
 
 // data/network methods
@@ -591,10 +613,12 @@ async function getLocationInformation(givenLocation) {
         locationInformation = {};
         locationInformation.latitude = givenLocation.latitude;
         locationInformation.longitude = givenLocation.longitude;
+        locationInformation.isFixed = true;
         filePrefix = locationInformation.latitude + locationInformation.longitude + '-'; // must be unique
     } else {
         try {
             locationInformation = await Location.current(); // get location from device
+            locationInformation.isFixed = false;
         } catch (exception) {
             if (DEV_MODE) {
                 console.error('location exception: ' + exception);
