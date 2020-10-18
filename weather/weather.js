@@ -30,6 +30,8 @@ const NETATMO_PASSWORD = '';
 const NETATMO_DEVICE_MAC_ID = '';
 const NETATMO_SCOPE = '';
 
+// make an account at https://www.wunderground.com
+const WUNDERGROUND_API_KEY = '';
 
 // MAY be changed
 /////////////////
@@ -38,13 +40,19 @@ const NETATMO_SCOPE = '';
 const DEV_MODE = false; // true: run script in dev mode
 const DEV_PREVIEW = 'large'; // widget size for dev mode
 const DEV_MODE_WIDGET_PARAMETER = '{}'; // set desired widget parameters for dev mode
-// const DEV_MODE_WIDGET_PARAMETER = '{"location": {"latitude": 37.7749, "longitude": -122.4194}, "smallWidgetStack": "netatmo", "meteoalarm": {"countryCode": "ES", "geocode": "ES511"}}'; // ex. San Francisco, ex. show netatmo instead of today in small widget, use ES/ES511 for meteoalarms
+// const DEV_MODE_WIDGET_PARAMETER = '{"location": {"latitude": 37.7749, "longitude": -122.4194}, "smallWidgetStack": "netatmo", "meteoalarm": {"countryCode": "ES", "geocode": "ES511"}, "wundergroundStationId": "KCASANFR1762"}'; // ex. location: San Francisco, ex. smallStack Config: show netatmo instead of today in small widget, ex. meteoalarm: use ES/ES511 for meteoalarms, ex. wundergrounnd: San Francisco
 
-// forecast
+// forecast (general)
 const FORECAST_HOURS = 5; // recommended 4-6, depending on device (max. 48)
 const FORECAST_DAYS = 5; // recommended 4-6, depending on device (max. 7)
-const FORECAST_UNITS = 'metric' // metric for celsius and imperial for Fahrenheit
 const FORECAST_LANGUAGE_CODE = 'de' // language for text output of openweathermap.org
+
+// openweathermap
+const OPENWEATHERMAP_UNITS = 'metric' // metric for celsius and imperial for Fahrenheit
+
+// wunderground
+const WUNDERGROUND_UNITS = 'm' // m for metric, e for english, h for hybrid (UK)
+var WUNDERGROUND_STATION_ID = '' // will be read from widgetParameters
 
 // date formats (https://docs.scriptable.app/dateformatter/#dateformat)
 const DAY_FORMAT = 'E';
@@ -68,7 +76,7 @@ const TOP_ROW_SIZE = new Size(0, 150);
 const FORECAST_STACK_LARGE_SIZE = new Size(0, 85);
 const FORECAST_STACK_MEDIUM_SIZE = new Size(0, 65);
 const NETATMO_IMAGE_SIZE = new Size(35, 35);
-const TODAY_IMAGE_SIZE = new Size(20, 20);
+const TODAY_SUNRISE_SET_SIZE = new Size(20, 20);
 const LOCATION_ICON_SIZE = new Size(10, 10);
 
 // meteoalarm colors
@@ -150,6 +158,7 @@ if (config.runsInWidget || DEV_MODE) {
     if (widgetFamily === 'large' || widgetFamily === 'small') {
 
         let smallWidgetStack = (widgetParameter.smallWidgetStack !== undefined) ? widgetParameter.smallWidgetStack : 'today'; // default single small stack is today
+        let todayWeatherProvider = (widgetParameter.wundergroundStationId) ? 'wunderground' : 'openweathermap'; // default wetaher provider is openweathermap
 
         let topRow = widget.addStack();
         topRow.layoutHorizontally();
@@ -169,8 +178,15 @@ if (config.runsInWidget || DEV_MODE) {
             if (widgetFamily === 'small') { // stack url does not apply for small widgets, widget url has to be set (https://docs.scriptable.app/widgetstack/#url)
                 widget.url = weatherUrl;
             }
+
             weatherForecast = await getWeatherData('openweathermap.json', fetchOpenweathermapData, locationInformation); // get the forecast from https://openweathermap.org
-            await addTodayStack(topRow, weatherForecast, locationInformation);
+            if (todayWeatherProvider === 'openweathermap') {
+                await addTodayStack(topRow, weatherForecast, locationInformation, convertOpenweathermapTodayForecast);
+            } else {
+                WUNDERGROUND_STATION_ID = widgetParameter.wundergroundStationId;
+                let wundergroundForecast = await getWeatherData('wunderground.json', fetchWundergroundData, locationInformation); // get the forecast from https://openweathermap.org
+                await addTodayStack(topRow, wundergroundForecast, locationInformation, convertWundergroundTodayForecast);
+            }
         }
 
         if (widgetFamily === 'large') {
@@ -298,7 +314,7 @@ async function addNetatmoStack(currentStack, locationInformation) {
     }
 }
 
-async function addTodayStack(currentStack, weatherForecast, locationInformation) {
+async function addTodayStack(currentStack, forecast, locationInformation, convertForecastCallable) {
     // top row => today weather stack
     let todayStack = currentStack.addStack();
     todayStack.url = weatherUrl;
@@ -308,8 +324,9 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
     todayStack.backgroundColor = STACK_BACKGROUND_COLOR;
     todayStack.cornerRadius = 12;
 
-    if (weatherForecast !== undefined) {
-        const currentForecast = weatherForecast.current;
+    if (forecast !== undefined) {
+
+        const currentForecast = await convertForecastCallable(forecast);
 
         let titleStack = todayStack.addStack();
         titleStack.layoutHorizontally();
@@ -326,9 +343,9 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         let updateTimeStack = todayStack.addStack();
         updateTimeStack.layoutHorizontally();
         updateTimeStack.addSpacer();
-        let time = updateTimeStack.addText(formatTimestamp(currentForecast.dt, TIME_FORMAT));
+        let time = updateTimeStack.addText(currentForecast.timestamp);
         time.font = Font.semiboldSystemFont(10);
-        time.textColor = weatherForecast.isCached ? WARNING_COLOR : TEXT_COLOR;
+        time.textColor = forecast.isCached ? WARNING_COLOR : TEXT_COLOR;
         time.textOpacity = 0.5;
         updateTimeStack.addSpacer();
 
@@ -338,35 +355,38 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         subtitleStack.layoutHorizontally();
         subtitleStack.centerAlignContent();
         subtitleStack.addSpacer();
-
-        addSfSymbol(subtitleStack, SUNRISE_ICON_NAME, TODAY_IMAGE_SIZE);
+        addSfSymbol(subtitleStack, SUNRISE_ICON_NAME, TODAY_SUNRISE_SET_SIZE);
         subtitleStack.addSpacer(5);
-        let sunriseText = subtitleStack.addText(formatTimestamp(currentForecast.sunrise, TIME_FORMAT));
+        let sunriseText = subtitleStack.addText(currentForecast.sunriseTime);
         sunriseText.font = Font.systemFont(10);
         sunriseText.textColor = TEXT_COLOR;
-
         subtitleStack.addSpacer(15);
-
-        addSfSymbol(subtitleStack, SUNSET_ICON_NAME, TODAY_IMAGE_SIZE);
+        addSfSymbol(subtitleStack, SUNSET_ICON_NAME, TODAY_SUNRISE_SET_SIZE);
         subtitleStack.addSpacer(5);
-        let sunsetText = subtitleStack.addText(formatTimestamp(currentForecast.sunset, TIME_FORMAT));
+        let sunsetText = subtitleStack.addText(currentForecast.sunsetTime);
         sunsetText.font = Font.systemFont(10);
         sunsetText.textColor = TEXT_COLOR;
-
         subtitleStack.addSpacer();
+
+        todayStack.addSpacer();
 
         let imageStack = todayStack.addStack();
         imageStack.layoutHorizontally();
         imageStack.centerAlignContent();
-        imageStack.addImage(await getWeatherIcon(currentForecast.weather[0].icon));
-        let descriptionTxt = imageStack.addText(currentForecast.weather[0].description);
+        imageStack.addSpacer();
+        imageStack.addImage(currentForecast.weatherIcon);
+        imageStack.addSpacer(3);
+        let descriptionTxt = imageStack.addText(currentForecast.weatherDescription);
         descriptionTxt.font = Font.systemFont(12);
         descriptionTxt.textColor = TEXT_COLOR;
+        imageStack.addSpacer();
+
+        todayStack.addSpacer();
 
         let firstDataStack = todayStack.addStack();
         firstDataStack.layoutHorizontally();
         firstDataStack.addSpacer();
-        let firstDataText = firstDataStack.addText(currentForecast.temp.toFixed(1) + '° (' + currentForecast.feels_like.toFixed(1) + '°)');
+        let firstDataText = firstDataStack.addText(currentForecast.firstDataRow);
         firstDataText.centerAlignText();
         firstDataText.font = Font.systemFont(12);
         firstDataText.textColor = TEXT_COLOR;
@@ -375,7 +395,7 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         let secondDataStack = todayStack.addStack();
         secondDataStack.layoutHorizontally();
         secondDataStack.addSpacer();
-        let secondDataText = secondDataStack.addText(currentForecast.humidity + '% / ' + (currentForecast.wind_speed * 3.6).toFixed(1) + ' kmh');
+        let secondDataText = secondDataStack.addText(currentForecast.secondDataRow);
         secondDataText.centerAlignText();
         secondDataText.font = Font.systemFont(12);
         secondDataText.textColor = TEXT_COLOR;
@@ -386,6 +406,30 @@ async function addTodayStack(currentStack, weatherForecast, locationInformation)
         errorMessage.font = Font.semiboldSystemFont(12);
         errorMessage.textColor = WARNING_COLOR;
     }
+}
+
+async function convertOpenweathermapTodayForecast(todayForecast) {
+    let forecast = {};
+    forecast.timestamp = formatTimestamp(todayForecast.current.dt, TIME_FORMAT);
+    forecast.sunriseTime = formatTimestamp(todayForecast.current.sunrise, TIME_FORMAT);
+    forecast.sunsetTime = formatTimestamp(todayForecast.current.sunset, TIME_FORMAT);
+    forecast.weatherIcon = await getOpenweathermapIcon(todayForecast.current.weather[0].icon);
+    forecast.weatherDescription = todayForecast.current.weather[0].description;
+    forecast.firstDataRow = todayForecast.current.temp.toFixed(1) + '° (' + todayForecast.current.feels_like.toFixed(1) + '°)';
+    forecast.secondDataRow = todayForecast.current.humidity + '% / ' + (todayForecast.current.wind_speed * 3.6).toFixed(1) + ' kmh';
+    return forecast;
+}
+
+async function convertWundergroundTodayForecast(todayForecast) {
+    let forecast = {};
+    forecast.timestamp = formatISOTimestamp(todayForecast.station.observations[0].obsTimeLocal.replace(' ', 'T'), TIME_FORMAT); // local times are missing the T?
+    forecast.sunriseTime = formatISOTimestamp(todayForecast.forecast.sunriseTimeLocal[0], TIME_FORMAT);
+    forecast.sunsetTime = formatISOTimestamp(todayForecast.forecast.sunsetTimeLocal[0], TIME_FORMAT);
+    forecast.weatherIcon = await getWundergroundIcon(todayForecast.forecast.daypart[0].iconCode[0] ? todayForecast.forecast.daypart[0].iconCode[0] : todayForecast.forecast.daypart[0].iconCode[1]);
+    forecast.weatherDescription = todayForecast.forecast.daypart[0].wxPhraseLong[0] ? todayForecast.forecast.daypart[0].wxPhraseLong[0] : todayForecast.forecast.daypart[0].wxPhraseLong[1];
+    forecast.firstDataRow = todayForecast.station.observations[0].metric.temp.toFixed(1) + '° (' + todayForecast.station.observations[0].metric.windChill.toFixed(1) + '°)';
+    forecast.secondDataRow = todayForecast.station.observations[0].humidity + '% / ' + (todayForecast.station.observations[0].metric.windSpeed).toFixed(1) + ' kmh';
+    return forecast;
 }
 
 async function addForecastStackTitle(currentStack, forecast, locationInformation) {
@@ -473,7 +517,7 @@ async function addForecastStack(currentStack, forecast, convertForecastCallable,
 async function convertHourlyForecast(hourlyForecast) {
     let forecast = {};
     forecast.title = formatTimestamp(hourlyForecast.dt, HOUR_FORMAT) + 'h';
-    forecast.icon = await getWeatherIcon(hourlyForecast.weather[0].icon);
+    forecast.icon = await getOpenweathermapIcon(hourlyForecast.weather[0].icon);
     forecast.data = Math.round(hourlyForecast.temp) + '°(' + Math.round(hourlyForecast.feels_like) + '°)';
     return forecast;
 }
@@ -481,7 +525,7 @@ async function convertHourlyForecast(hourlyForecast) {
 async function convertDailyForecast(dailyForecast) {
     let forecast = {};
     forecast.title = formatTimestamp(dailyForecast.dt, DAY_FORMAT);
-    forecast.icon = await getWeatherIcon(dailyForecast.weather[0].icon);
+    forecast.icon = await getOpenweathermapIcon(dailyForecast.weather[0].icon);
     forecast.data = Math.round(dailyForecast.temp.min) + '° / ' + Math.round(dailyForecast.temp.max) + '°';
     return forecast;
 }
@@ -523,7 +567,7 @@ async function getWeatherData(weatherFileName, fetchDataCallable, locationInform
 }
 
 // https://openweathermap.org/img/wn/
-async function getWeatherIcon(iconName) {
+async function getOpenweathermapIcon(iconName) {
     let icon;
     let iconFileName = iconName + '.png';
 
@@ -539,20 +583,51 @@ async function getWeatherIcon(iconName) {
     return icon;
 }
 
+// https://openweathermap.org/img/wn/
+async function getWundergroundIcon(iconName) {
+    let iconFileName = iconName + '.png';
+    iconFileName = fileManager.joinPath('wundergroundIcons', iconFileName);
+
+    return readImage(iconFileName);
+}
+
 // https://openweathermap.org/api/one-call-api#multi
 async function fetchOpenweathermapData(locationInformation) {
     let weatherData;
-    const weatherURL = `https://api.openweathermap.org/data/2.5/onecall?lat=${locationInformation.latitude}&lon=${locationInformation.longitude}&exclude=minutely,alerts&units=${FORECAST_UNITS}&lang=${FORECAST_LANGUAGE_CODE}&appid=${OPENWEATHER_API_KEY}`;
+    const weatherURL = `https://api.openweathermap.org/data/2.5/onecall?lat=${locationInformation.latitude}&lon=${locationInformation.longitude}&exclude=minutely,alerts&units=${OPENWEATHERMAP_UNITS}&lang=${FORECAST_LANGUAGE_CODE}&appid=${OPENWEATHER_API_KEY}`;
 
     try {
         weatherData = await new Request(weatherURL).loadJSON();
     } catch (exception) {
         if (DEV_MODE) {
-            console.error('forecast exception: ' + exception);
+            console.error('openweathermap exception: ' + exception);
         }
     }
 
     return weatherData;
+}
+
+// https://docs.google.com/document/d/1KGb8bTVYRsNgljnNH67AMhckY8AQT2FVwZ9urj8SWBs/edit
+// https://docs.google.com/document/d/1_Zte7-SdOjnzBttb1-Y9e0Wgl0_3tah9dSwXUyEA3-c/edit
+async function fetchWundergroundData(locationInformation) {
+    let weatherData = {};
+
+    try {
+        // get station data
+        let weatherURL = 'https://api.weather.com/v2/pws/observations/current?stationId=' + WUNDERGROUND_STATION_ID + '&format=json&units=' + WUNDERGROUND_UNITS + '&apiKey=' + WUNDERGROUND_API_KEY;
+        weatherData.station = await new Request(weatherURL).loadJSON();
+
+        // get forecast data
+        weatherURL = 'https://api.weather.com/v3/wx/forecast/daily/5day?geocode=' + locationInformation.latitude + ',' + locationInformation.longitude + '&format=json&units=' + WUNDERGROUND_UNITS + '&language=' + FORECAST_LANGUAGE_CODE + '&apiKey=' + WUNDERGROUND_API_KEY;
+        weatherData.forecast = await new Request(weatherURL).loadJSON();
+
+        return weatherData;
+    } catch (exception) {
+        if (DEV_MODE) {
+            console.error('wunderground exception: ' + exception);
+        }
+        return undefined;
+    }
 }
 
 // https://api.netatmo.com/oauth2/token && https://dev.netatmo.com/apidocumentation/weather#getstationsdata
@@ -614,7 +689,7 @@ async function getLocationInformation(givenLocation) {
         locationInformation.latitude = givenLocation.latitude;
         locationInformation.longitude = givenLocation.longitude;
         locationInformation.isFixed = true;
-        filePrefix = locationInformation.latitude + locationInformation.longitude + '-'; // must be unique
+        filePrefix = locationInformation.latitude + '_' + locationInformation.longitude + '-'; // must be unique
     } else {
         try {
             locationInformation = await Location.current(); // get location from device
@@ -704,7 +779,6 @@ function readImage(fileName) {
 
 function writeImage(fileName, data) {
     const pathName = fileManager.joinPath(cachePath, fileName);
-
     fileManager.writeImage(pathName, data);
 }
 
@@ -715,6 +789,12 @@ function formatTimestamp(timestamp, format) {
     let dateFormatter = new DateFormatter();
     dateFormatter.dateFormat = format;
     return dateFormatter.string(new Date(timestamp * 1000));
+}
+
+function formatISOTimestamp(timestamp, format) {
+    let dateFormatter = new DateFormatter();
+    dateFormatter.dateFormat = format;
+    return dateFormatter.string(new Date(timestamp));
 }
 
 // xml methods
