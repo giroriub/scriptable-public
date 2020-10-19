@@ -42,7 +42,6 @@ Shows hourly and daily forecast.
 Shows netatmo and today view in top row and hourly and daily forecasts in botttom rows.
 
 ### Wunderground data
-Since they do not provide an hourly api, the data is currently only used for the today view. If you want to use the medium or large widget, you still need to have a openweathermap api key.
+Since they do not provide an hourly api, the data is currently only used for the today view. If you want to use the medium or large widget, you still need to have an openweathermap api key.
 
-Since they do not support online download of their icons, you need to download the pngs from https://openweathermap.org/img/wn/ and copy them into your iCloud directory:
-`Scriptable/weatherCache/wundergroundIcons` 
+Since they do not support online download of their icons, they are hosted in this repo and fetched from here.
