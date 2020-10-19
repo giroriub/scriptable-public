@@ -374,7 +374,9 @@ async function addTodayStack(currentStack, forecast, locationInformation, conver
         imageStack.layoutHorizontally();
         imageStack.centerAlignContent();
         imageStack.addSpacer();
-        imageStack.addImage(currentForecast.weatherIcon);
+        if (currentForecast.weatherIcon) {
+            imageStack.addImage(currentForecast.weatherIcon);
+        }
         imageStack.addSpacer(3);
         let descriptionTxt = imageStack.addText(currentForecast.weatherDescription);
         descriptionTxt.font = Font.systemFont(12);
@@ -568,27 +570,33 @@ async function getWeatherData(weatherFileName, fetchDataCallable, locationInform
 
 // https://openweathermap.org/img/wn/
 async function getOpenweathermapIcon(iconName) {
-    let icon;
-    let iconFileName = iconName + '.png';
-
-    icon = readImage(iconFileName);
-    if (icon === undefined) {
-        icon = await new Request('https://openweathermap.org/img/wn/' + iconName + '@2x.png').loadImage();
-        writeImage(iconFileName, icon);
-        if (DEV_MODE) {
-            console.log('using remote ' + iconFileName);
-        }
-    }
-
-    return icon;
+    return await getIcon(iconName + '.png', 'https://openweathermap.org/img/wn/' + iconName + '@2x.png');
 }
 
 // https://openweathermap.org/img/wn/
 async function getWundergroundIcon(iconName) {
-    let iconFileName = iconName + '.png';
-    iconFileName = fileManager.joinPath('wundergroundIcons', iconFileName);
+    return await getIcon(iconName + '.png', 'https://github.com/giroriub/scriptable-public/raw/main/weather/wundergroundIcons/' + iconName + '.png');
+}
 
-    return readImage(iconFileName);
+async function getIcon(iconFileName, iconUrl) {
+    let icon;
+
+    icon = readImage(iconFileName);
+    if (icon === undefined) {
+        try {
+            icon = await new Request(iconUrl).loadImage();
+            writeImage(iconFileName, icon);
+            if (DEV_MODE) {
+                console.log('using remote ' + iconFileName);
+            }
+        } catch (exception) {
+            if (DEV_MODE) {
+                console.error('getIcon exception: ' + exception);
+            }
+        }
+    }
+
+    return icon;
 }
 
 // https://openweathermap.org/api/one-call-api#multi
